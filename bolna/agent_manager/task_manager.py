@@ -742,35 +742,35 @@ class TaskManager(BaseManager):
                         transcriber_message = ""
                         continue
                     else:
-                            logger.info(f'invoking next_task {next_task} with transcriber_message: {message["data"]}')
-                            if transcriber_message.strip() == message['data'].strip():
-                                logger.info("Transcriber message and message data are same and hence not changing anything else")
-                                continue
+                        logger.info(f'invoking next_task {next_task} with transcriber_message: {message["data"]}')
+                        if transcriber_message.strip() == message['data'].strip():
+                            logger.info("Transcriber message and message data are same and hence not changing anything else")
+                            continue
 
-                            elif len(message['data'].strip()) != 0:
-                                #Currently simply cancel the next task
-                                #TODO add more optimisation by just getting next x tokens or something similar
-                                await self.__cleanup_downstream_tasks()
-                                self.last_response_time = time.time()
-                                transcriber_message = message['data']
+                        elif len(message['data'].strip()) != 0:
+                            #Currently simply cancel the next task
+                            #TODO add more optimisation by just getting next x tokens or something similar
+                            await self.__cleanup_downstream_tasks()
+                            self.last_response_time = time.time()
+                            transcriber_message = message['data']
 
-                                if not response_started:
-                                    response_started = True
-                                else:
-                                    #In this case user has already started speaking
-                                    # Hence check the previous message if it's user or assistant
-                                    # If it's user, simply change user's message
-                                    # If it's assistant remover assistant message and append user
-                                    if self.interim_history[-1]['role'] == 'assistant':
-                                        self.interim_history = self.interim_history[:-1]
-                                    else:
-                                        self.interim_history = self.interim_history[:-2]
-                                logger.info("Current transcript: {} Predicting next few tokens".format(transcriber_message))
-                                meta_info = self.__get_updated_meta_info(meta_info)
-                                await self._handle_transcriber_output(next_task, transcriber_message, meta_info)
-                                
+                            if not response_started:
+                                response_started = True
                             else:
-                                logger.info(f"Got a null message")
+                                #In this case user has already started speaking
+                                # Hence check the previous message if it's user or assistant
+                                # If it's user, simply change user's message
+                                # If it's assistant remover assistant message and append user
+                                if self.interim_history[-1]['role'] == 'assistant':
+                                    self.interim_history = self.interim_history[:-1]
+                                else:
+                                    self.interim_history = self.interim_history[:-2]
+                            logger.info("Current transcript: {} Predicting next few tokens".format(transcriber_message))
+                            meta_info = self.__get_updated_meta_info(meta_info)
+                            await self._handle_transcriber_output(next_task, transcriber_message, meta_info)
+
+                        else:
+                            logger.info(f"Got a null message")
                 else:
                     logger.info(f"Processing http transcription for message {message}")
                     await self.__process_http_transcription(message)
