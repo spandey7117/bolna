@@ -219,6 +219,7 @@ class TaskManager(BaseManager):
 
     def __setup_synthesizer(self, llm_config):
         logger.info(f"Synthesizer config: {self.task_config['tools_config']['synthesizer']}")
+        self.kwargs["use_turbo"] = self.task_config["tools_config"]["transcriber"]["language"] == "en"
         if self.task_config["tools_config"]["synthesizer"] is not None:
             self.synthesizer_provider = self.task_config["tools_config"]["synthesizer"].pop("provider")
             synthesizer_class = SUPPORTED_SYNTHESIZER_MODELS.get(self.synthesizer_provider)
@@ -226,7 +227,7 @@ class TaskManager(BaseManager):
             if self.connected_through_dashboard:
                 self.task_config["tools_config"]["synthesizer"]["audio_format"] = "mp3" # Hard code mp3 if we're connected through dashboard
                 self.task_config["tools_config"]["synthesizer"]["stream"] = True if self.enforce_streaming else False #Hardcode stream to be False as we don't want to get blocked by a __listen_synthesizer co-routine
-                
+        
             self.tools["synthesizer"] = synthesizer_class(**self.task_config["tools_config"]["synthesizer"], **provider_config, **self.kwargs)
             if self.task_config["tools_config"]["llm_agent"] is not None:
                 llm_config["buffer_size"] = self.task_config["tools_config"]["synthesizer"].get('buffer_size')
@@ -292,6 +293,7 @@ class TaskManager(BaseManager):
             enriched_prompt = self.prompts["system_prompt"]
             if self.context_data is not None:
                 enriched_prompt = update_prompt_with_context(self.prompts["system_prompt"], self.context_data)
+                self.prompts["system_prompt"] = enriched_prompt
             self.system_prompt = {
                 'role': "system",
                 'content': enriched_prompt
@@ -454,14 +456,12 @@ class TaskManager(BaseManager):
             self.history.append(self.interim_history[-1].copy())
             logger.info(f"Current history {self.history}, current interim history {self.interim_history} but it falls in else part")
 
-
-    def __update_preprocessed_tree_node(self):    
+    def __update_preprocessed_tree_node(self):
         logger.info(f"It's a preprocessed flow and hence updating current node")
         self.tools['llm_agent'].update_current_node()
     
-
     def __convert_to_request_log(self, message, meta_info, model, component = "transcriber", direction = 'response'):
-        log = {}
+        log = dict()
         log['direction'] = direction
         log['data'] = message
         log['leg_id'] = meta_info['request_id'] if "request_id" in meta_info else "1234"
@@ -475,7 +475,6 @@ class TaskManager(BaseManager):
         else:
             log['is_final'] = False #This is logged only for users to know final transcript from the transcriber
         asyncio.create_task(write_request_logs(log, self.run_id))
-
 
     ##############################################################
     # LLM task
@@ -740,35 +739,35 @@ class TaskManager(BaseManager):
                         transcriber_message = ""
                         continue
                     else:
-                            logger.info(f'invoking next_task {next_task} with transcriber_message: {message["data"]}')
-                            if transcriber_message.strip() == message['data'].strip():
-                                logger.info("Transcriber message and message data are same and hence not changing anything else")
-                                continue
+                        logger.info(f'invoking next_task {next_task} with transcriber_message: {message["data"]}')
+                        if transcriber_message.strip() == message['data'].strip():
+                            logger.info("Transcriber message and message data are same and hence not changing anything else")
+                            continue
 
-                            elif len(message['data'].strip()) != 0:
-                                #Currently simply cancel the next task
-                                #TODO add more optimisation by just getting next x tokens or something similar
-                                await self.__cleanup_downstream_tasks()
-                                self.last_response_time = time.time()
-                                transcriber_message = message['data']
+                        elif len(message['data'].strip()) != 0:
+                            #Currently simply cancel the next task
+                            #TODO add more optimisation by just getting next x tokens or something similar
+                            await self.__cleanup_downstream_tasks()
+                            self.last_response_time = time.time()
+                            transcriber_message = message['data']
 
-                                if not response_started:
-                                    response_started = True
-                                else:
-                                    #In this case user has already started speaking
-                                    # Hence check the previous message if it's user or assistant
-                                    # If it's user, simply change user's message
-                                    # If it's assistant remover assistant message and append user
-                                    if self.interim_history[-1]['role'] == 'assistant':
-                                        self.interim_history = self.interim_history[:-1]
-                                    else:
-                                        self.interim_history = self.interim_history[:-2]
-                                logger.info("Current transcript: {} Predicting next few tokens".format(transcriber_message))
-                                meta_info = self.__get_updated_meta_info(meta_info)
-                                await self._handle_transcriber_output(next_task, transcriber_message, meta_info)
-                                
+                            if not response_started:
+                                response_started = True
                             else:
-                                logger.info(f"Got a null message")
+                                #In this case user has already started speaking
+                                # Hence check the previous message if it's user or assistant
+                                # If it's user, simply change user's message
+                                # If it's assistant remover assistant message and append user
+                                if self.interim_history[-1]['role'] == 'assistant':
+                                    self.interim_history = self.interim_history[:-1]
+                                else:
+                                    self.interim_history = self.interim_history[:-2]
+                            logger.info("Current transcript: {} Predicting next few tokens".format(transcriber_message))
+                            meta_info = self.__get_updated_meta_info(meta_info)
+                            await self._handle_transcriber_output(next_task, transcriber_message, meta_info)
+
+                        else:
+                            logger.info(f"Got a null message")
                 else:
                     logger.info(f"Processing http transcription for message {message}")
                     await self.__process_http_transcription(message)
