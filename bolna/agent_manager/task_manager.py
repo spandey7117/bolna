@@ -559,10 +559,12 @@ class TaskManager(BaseManager):
         else:
             #messages = [self.interim_history[0], {'role': 'user', 'content': format_messages(self.history)}]
             self.interim_history.append({'role': 'user', 'content': message['data']})
+            messages = self.interim_history.copy()
             ### TODO CHECK IF THIS IS EVEN REQUIRED
-            self.__convert_to_request_log(message=format_messages(self.interim_history, use_system_prompt= True), meta_info= meta_info, component="llm", direction="request", model=self.task_config["tools_config"]["llm_agent"]["streaming_model"])
-            
-            async for llm_message in self.tools['llm_agent'].generate(self.interim_history, synthesize=True):
+            self.__convert_to_request_log(message=format_messages(messages, use_system_prompt=True),
+                                          meta_info=meta_info, component="llm", direction="request",
+                                          model=self.task_config["tools_config"]["llm_agent"]["streaming_model"])
+            async for llm_message in self.tools['llm_agent'].generate(messages, synthesize=True):
                 text_chunk, end_of_llm_stream = llm_message
                 logger.info(f"###### time to get the first chunk {time.time() - start_time} {text_chunk}")
                 llm_response += " " + text_chunk
